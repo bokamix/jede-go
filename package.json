@@ -1,0 +1,13 @@
+{
+  "name": "jede-cs",
+  "version": "1.0.0",
+  "description": "Przeglądarkowy multiplayer FPS w stylu CS:GO",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
