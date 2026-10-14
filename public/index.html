@@ -28,6 +28,8 @@
   #top .sc { min-width: 44px; padding: 4px 10px; border-radius: 4px; background: rgba(0,0,0,.5); text-align: center; }
   #timer { min-width: 86px; padding: 4px 12px; text-align: center; background: rgba(0,0,0,.6); border-radius: 4px; font-variant-numeric: tabular-nums; }
   #timer.bomb { color: #f44; animation: blink 1s infinite; }
+  #voice { position: absolute; left: 14px; top: 224px; font-size: 14px; display: flex; flex-direction: column; gap: 3px; }
+  #voice div { background: rgba(0,0,0,.5); padding: 3px 8px; border-radius: 3px; }
   #alive { position: absolute; top: 50px; left: 50%; transform: translateX(-50%); font-size: 13px; opacity: .85; }
   @keyframes blink { 50% { opacity: .35; } }
 
@@ -103,6 +105,7 @@
   <canvas id="radar" width="200" height="200"></canvas>
   <div id="top"><div class="sc T" id="scT">0</div><div id="timer">0:00</div><div class="sc CT" id="scCT">0</div></div>
   <div id="alive"></div>
+  <div id="voice"></div>
   <div id="killfeed"></div>
   <div id="scope" class="hidden"></div>
   <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="dot"></i></div>
@@ -139,7 +142,7 @@
     <div class="keys">
       <kbd>WASD</kbd> ruch<br><kbd>Spacja</kbd> skok<br><kbd>C</kbd> kucanie<br><kbd>Shift</kbd> cichy chód<br>
       <kbd>LPM</kbd> strzał<br><kbd>PPM</kbd> celownik AWP / dźgnięcie<br><kbd>R</kbd> przeładuj<br><kbd>1 2 3</kbd> / <kbd>Q</kbd> / kółko – broń<br>
-      <kbd>B</kbd> sklep<br><kbd>E</kbd> podłóż / rozbrój bombę<br><kbd>Tab</kbd> tabela wyników<br><kbd>Y</kbd> czat
+      <kbd>B</kbd> sklep<br><kbd>E</kbd> podłóż / rozbrój bombę<br><kbd>Tab</kbd> tabela wyników<br><kbd>Y</kbd> czat<br><kbd>V</kbd> mów (do wszystkich)
     </div>
   </div>
 </div>
@@ -159,7 +162,10 @@
       <input type="range" id="sens" min="0.2" max="3" step="0.05" value="1" style="width:100%">
     </div>
     <div style="margin-top:8px">
-      Głośność: <input type="range" id="vol" min="0" max="1" step="0.05" value="0.5" style="width:100%">
+      Głośność gry: <input type="range" id="vol" min="0" max="1" step="0.05" value="0.5" style="width:100%">
+    </div>
+    <div style="margin-top:8px">
+      Głośność czatu głosowego: <input type="range" id="vvol" min="0" max="1" step="0.05" value="1" style="width:100%">
     </div>
     <div id="urls2" class="muted" style="margin-top:10px"></div>
   </div>

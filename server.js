@@ -284,6 +284,13 @@ function onMessage(ws, msg) {
       break;
     }
     case 'useEnd': if (p) p.use = null; break;
+    // głos: sygnalizacja WebRTC (serwer tylko przekazuje wiadomości między graczami)
+    case 'rtc': {
+      const to = players.get(msg.to);
+      if (p && to && msg.data && typeof msg.data === 'object') send(to.ws, { t: 'rtc', from: p.id, data: msg.data });
+      break;
+    }
+    case 'talk': if (p) broadcast({ t: 'talk', id: p.id, on: !!msg.on }); break;
     case 'chat': {
       const text = sanitize(msg.text, 120);
       if (p && text) broadcast({ t: 'chat', id: p.id, name: p.name, team: p.team, dead: !p.alive, text });

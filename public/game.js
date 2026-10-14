@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   MAP, WEAPONS, ITEMS, BUY, PLAYER, ROUND, traceMap, traceShot, siteAt,
 } from './shared.js';
+import { createVoice } from './voice.js';
 
 const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -430,6 +431,8 @@ function connect() {
   ws.onmessage = e => handle(JSON.parse(e.data));
 }
 function net(msg) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); }
+const voice = createVoice({ send: net, myId: () => me.id, onError: text => addChat(null, '🎤 ' + text) });
+voice.setVolume(Number(store.get('vvol', 1)));
 
 function handle(m) {
   switch (m.t) {
@@ -443,6 +446,7 @@ function handle(m) {
     case 'joined':
       me.id = m.id; me.team = m.team; me.joined = true;
       $('menu').classList.add('hidden'); $('hud').classList.remove('hidden');
+      voice.initMic();
       lock();
       break;
     case 'snap': onSnap(m); break;
@@ -465,6 +469,8 @@ function handle(m) {
       SND.buy();
       break;
     case 'shot': onRemoteShot(m); break;
+    case 'rtc': if (me.joined) voice.signal(m.from, m.data); break;
+    case 'talk': voice.setTalking(m.id, m.on); updateVoiceHud(); break;
     case 'hitmark': {
       const h = $('hitmarker'); h.classList.toggle('hs', m.hs); h.style.opacity = 1;
       clearTimeout(h._t); h._t = setTimeout(() => h.style.opacity = 0, 120);
@@ -581,6 +587,7 @@ function onSnap(m) {
     r.model.bomb.visible = !!(m.b && m.b.s === 'carried' && m.b.c === p.i && me.team === 'T');
   }
   for (const [id, r] of remotes) if (!seen.has(id)) { scene.remove(r.model.root); remotes.delete(id); }
+  if (me.joined) voice.sync(m.p.map(p => p.i));
   updateBombModel();
 }
 
@@ -749,6 +756,8 @@ document.querySelectorAll('#pause [data-switch]').forEach(b => b.onclick = () =>
 });
 $('sens').value = sens; $('sensval').textContent = sens.toFixed(2);
 $('sens').oninput = e => { sens = Number(e.target.value); $('sensval').textContent = sens.toFixed(2); store.set('sens', sens); };
+$('vvol').value = store.get('vvol', 1);
+$('vvol').oninput = e => { voice.setVolume(Number(e.target.value)); store.set('vvol', e.target.value); };
 $('vol').value = volume;
 $('vol').oninput = e => { volume = Number(e.target.value); if (master) master.gain.value = volume; store.set('vol', volume); };
 
@@ -815,6 +824,7 @@ addEventListener('keydown', e => {
     case 'KeyB': toggleBuy(); break;
     case 'KeyY': case 'Enter': if (!ui.buy) { e.preventDefault(); openChat(); } break;
     case 'KeyE': if (me.alive) net({ t: 'useStart' }); break;
+    case 'KeyV': voice.push(true); voice.setTalking(me.id, true); updateVoiceHud(); break;
     case 'Space': if (!me.alive) cycleSpec(); break;
     case 'Escape': if (ui.buy) toggleBuy(false); break;
   }
@@ -823,8 +833,9 @@ addEventListener('keyup', e => {
   keys[e.code] = false;
   if (e.code === 'Tab') { ui.tab = false; $('scoreboard').classList.add('hidden'); }
   if (e.code === 'KeyE') net({ t: 'useEnd' });
+  if (e.code === 'KeyV') { voice.push(false); voice.setTalking(me.id, false); updateVoiceHud(); }
 });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouseDown = false; net({ t: 'useEnd' }); });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouseDown = false; net({ t: 'useEnd' }); if (me.joined) { voice.push(false); voice.setTalking(me.id, false); updateVoiceHud(); } });
 
 function cycleSpec(dir = 1) {
   const alive = game.p.filter(p => p.a && p.i !== me.id && (p.t === me.team || !game.p.some(q => q.a && q.t === me.team && q.i !== me.id)));
@@ -1153,6 +1164,11 @@ function updateViewModel(dt, t) {
 }
 
 function fmtTime(ms) { const s = Math.ceil(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
+function updateVoiceHud() {
+  const list = [...voice.talking].map(id => playerData(id)).filter(Boolean);
+  $('voice').innerHTML = list.map(p => `<div><span class="${p.t}">🎤 ${p.n}${p.i === me.id && !voice.hasMic ? ' (brak mikrofonu)' : ''}</span></div>`).join('');
+}
+
 function updateHud() {
   if (!me.joined) return;
   $('scT').textContent = game.sc.T; $('scCT').textContent = game.sc.CT;
