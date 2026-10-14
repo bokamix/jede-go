@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  MAP, WEAPONS, ITEMS, BUY, PLAYER, ROUND, traceMap, traceShot, siteAt,
+  MAP, WEAPONS, ITEMS, BUY, PLAYER, ROUND, NADE, NADES, traceMap, traceShot, siteAt, nadeState, nadeStep, nadeDone,
 } from './shared.js';
 import { createVoice } from './voice.js';
 
@@ -179,9 +179,11 @@ const SND = {
     audio(); const t = actx.currentTime, d = out(pos);
     if (w === 'knife') return noise(d, t, 0.15, 0.4, 'highpass', 2500);
     const def = WEAPONS[w];
-    if (w === 'awp') { noise(d, t, 0.9, 1.4, 'lowpass', 1600); tone(d, t, 0.3, 1, 'sine', 120, 35); return; }
+    if (def.silenced) { noise(d, t, 0.12, 0.45, 'bandpass', 1700, 1.2); noise(d, t, 0.04, 0.25, 'highpass', 5000); return; }
+    if (def.cls === 'sniper') { const big = w === 'awp'; noise(d, t, big ? 0.9 : 0.6, big ? 1.4 : 1.1, 'lowpass', big ? 1600 : 2100); tone(d, t, 0.3, big ? 1 : 0.7, 'sine', 120, 35); return; }
+    if (def.pellets) { noise(d, t, 0.45, 1.3, 'lowpass', 1300); noise(d, t, 0.08, 0.7, 'highpass', 3000); tone(d, t, 0.22, 0.9, 'sine', 90, 30); return; }
     const pistol = def.slot === 2;
-    noise(d, t, pistol ? 0.18 : 0.26, 1.0, 'lowpass', w === 'deagle' ? 2000 : pistol ? 3800 : w === 'ak47' ? 2300 : 2900);
+    noise(d, t, pistol ? 0.18 : 0.26, 1.0, 'lowpass', def.tone || (pistol ? 3800 : 2900));
     noise(d, t, 0.05, 0.6, 'highpass', 4000);
     tone(d, t, 0.14, 0.7, 'sine', w === 'deagle' ? 110 : 160, 40);
   },
@@ -194,6 +196,15 @@ const SND = {
   draw() { audio(); noise(master, actx.currentTime, 0.08, 0.3, 'bandpass', 2600, 4); },
   beep(pos) { audio(); tone(out(pos), actx.currentTime, 0.1, 0.5, 'sine', 1650); },
   buy() { audio(); tone(master, actx.currentTime, 0.08, 0.25, 'sine', 900); },
+  bounce(pos, v) { audio(); tone(out(pos), actx.currentTime, 0.05, Math.min(0.5, v * 0.04), 'triangle', 700 + Math.random() * 300); },
+  pin() { audio(); const t = actx.currentTime; tone(master, t, 0.04, 0.2, 'square', 3200); noise(master, t + 0.05, 0.05, 0.25, 'bandpass', 2500, 4); },
+  throwNade() { audio(); noise(master, actx.currentTime, 0.18, 0.35, 'bandpass', 900, 1); },
+  he(pos) { audio(); const t = actx.currentTime, d = out(pos); noise(d, t, 1.4, 2.4, 'lowpass', 900); tone(d, t, 0.6, 1.6, 'sine', 110, 30); },
+  flashPop(pos) { audio(); const t = actx.currentTime, d = out(pos); noise(d, t, 0.35, 1.6, 'highpass', 1500); noise(d, t, 0.5, 1, 'lowpass', 700); },
+  ring(dur) { audio(); tone(master, actx.currentTime, dur, 0.18, 'sine', 3500); },
+  smokePop(pos) { audio(); noise(out(pos), actx.currentTime, 2.2, 0.8, 'bandpass', 900, 0.5); },
+  fire(pos, vol = 0.35) { audio(); noise(out(pos), actx.currentTime, 0.3, vol, 'bandpass', 600 + Math.random() * 900, 1.5); },
+  glass(pos) { audio(); const t = actx.currentTime, d = out(pos); noise(d, t, 0.25, 1, 'highpass', 4000); tone(d, t, 0.12, 0.3, 'triangle', 2800); noise(d, t + 0.05, 0.8, 1, 'lowpass', 1200); },
   explode(pos) { audio(); const t = actx.currentTime, d = out(pos); noise(d, t, 2.8, 3, 'lowpass', 500); tone(d, t, 1.2, 2, 'sine', 80, 25); },
 };
 function say(text) {
@@ -216,6 +227,19 @@ const M = {
   skin: lam(0xd9a98a), gloveT: lam(0x5b4630), gloveCT: lam(0x1f2a3b), tan: lam(0x9b8a6a),
 };
 
+const M2 = {
+  tan: lam(0x8a7a58), green: lam(0x3e4a32), grey: lam(0x6a6e72), black: lam(0x111113),
+  heBody: lam(0x4f5a34), flashBody: lam(0x9aa0a6), smokeBody: lam(0x5d6a5a), incBody: lam(0x707070),
+  red: lam(0xb02a20), yellow: lam(0xd8b23a), bottle: new THREE.MeshLambertMaterial({ color: 0x5a7a3a, transparent: true, opacity: 0.85 }), rag: lam(0xc8b89a),
+};
+function vcyl(r, h, mat, x = 0, y = 0, z = 0, r2 = r) { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r2, h, 12), mat); m.position.set(x, y, z); return m; }
+
+function pistolModel(g, len, mat) {
+  g.add(bx(0.045, 0.05, len, mat, 0, 0.03, -len / 2 + 0.05));
+  g.add(rot(bx(0.04, 0.11, 0.05, M.dark, 0, -0.04, 0.03), 0.25));
+  return -len + 0.05;
+}
+
 // model broni (lokalnie oś -Z to przód lufy); zwraca grupę z userData.muzzle
 function gunModel(key, hands, team) {
   const g = new THREE.Group();
@@ -225,36 +249,123 @@ function gunModel(key, hands, team) {
       g.add(bx(0.035, 0.04, 0.12, M.dark, 0, 0, 0.02));
       g.add(bx(0.012, 0.05, 0.2, M.blade, 0, 0.01, -0.14));
       muzzle = -0.25; break;
-    case 'glock': case 'usp': case 'deagle': {
-      const big = key === 'deagle', len = big ? 0.26 : key === 'usp' ? 0.24 : 0.2;
-      g.add(bx(0.045, 0.05, len, big ? M.blade : M.metal, 0, 0.03, -len / 2 + 0.05));
-      g.add(rot(bx(0.04, 0.11, 0.05, M.dark, 0, -0.04, 0.03), 0.25));
-      if (key === 'usp') g.add(cyl(0.017, 0.12, M.dark, 0, 0.03, -len + 0.0));
-      muzzle = key === 'usp' ? -len - 0.06 : -len + 0.05; break;
+    // ------------------------------------------------ pistolety
+    case 'glock': case 'usp': case 'deagle': case 'p250': case 'fiveseven': {
+      const len = { deagle: 0.26, usp: 0.24, glock: 0.2, p250: 0.21, fiveseven: 0.22 }[key];
+      muzzle = pistolModel(g, len, key === 'deagle' ? M.blade : key === 'fiveseven' ? M.tan : M.metal);
+      if (key === 'usp') { g.add(cyl(0.017, 0.12, M.dark, 0, 0.03, -len)); muzzle = -len - 0.06; }
+      if (key === 'p250') g.add(bx(0.046, 0.012, len * 0.8, M.dark, 0, 0.06, -len / 2 + 0.05));
+      break;
     }
+    case 'dualies':
+      for (const x of [-0.16, 0]) {
+        g.add(bx(0.04, 0.045, 0.22, M.blade, x, 0.03, -0.06));
+        g.add(rot(bx(0.035, 0.1, 0.045, M.dark, x, -0.04, 0.03), 0.25));
+      }
+      muzzle = -0.17; break;
+    case 'tec9':
+      g.add(bx(0.05, 0.06, 0.24, M.metal, 0, 0.03, -0.07));
+      g.add(cyl(0.02, 0.1, M.dark, 0, 0.035, -0.23));
+      g.add(rot(bx(0.035, 0.1, 0.045, M.dark, 0, -0.04, 0.03), 0.25));
+      g.add(bx(0.03, 0.14, 0.035, M.dark, 0, -0.05, -0.08));
+      muzzle = -0.28; break;
+    // ------------------------------------------------ SMG
     case 'mac10': case 'mp9':
       g.add(bx(0.06, 0.09, 0.26, M.metal, 0, 0.02, -0.08));
       g.add(bx(0.035, 0.16, 0.04, M.dark, 0, -0.08, 0.0));
       g.add(cyl(0.015, 0.1, M.dark, 0, 0.04, -0.26));
       if (key === 'mp9') g.add(bx(0.03, 0.03, 0.18, M.dark, 0, 0.0, 0.12));
       muzzle = -0.32; break;
-    case 'ak47':
+    case 'ump45':
+      g.add(bx(0.06, 0.1, 0.36, M.dark, 0, 0.02, -0.12));
+      g.add(cyl(0.015, 0.1, M.metal, 0, 0.04, -0.34));
+      g.add(rot(bx(0.04, 0.16, 0.05, M.dark, 0, -0.09, -0.12), -0.15));
+      g.add(rot(bx(0.04, 0.1, 0.04, M.dark, 0, -0.06, 0.04), 0.3));
+      g.add(bx(0.03, 0.06, 0.22, M.dark, 0, 0.0, 0.16));
+      muzzle = -0.4; break;
+    case 'mp7':
+      g.add(bx(0.055, 0.08, 0.26, M.metal, 0, 0.03, -0.07));
+      g.add(cyl(0.014, 0.08, M.dark, 0, 0.04, -0.23));
+      g.add(bx(0.035, 0.13, 0.04, M.dark, 0, -0.07, 0.02));
+      g.add(bx(0.03, 0.08, 0.035, M.dark, 0, -0.04, -0.15));
+      g.add(bx(0.02, 0.03, 0.12, M.dark, 0, 0.085, -0.06));
+      muzzle = -0.27; break;
+    case 'p90':
+      g.add(bx(0.07, 0.11, 0.42, M.green, 0, 0.0, -0.05));
+      g.add(bx(0.05, 0.03, 0.3, M.black, 0, 0.07, -0.08));
+      g.add(cyl(0.014, 0.06, M.dark, 0, 0.02, -0.29));
+      g.add(bx(0.03, 0.06, 0.1, M.black, 0, -0.07, -0.02));
+      muzzle = -0.32; break;
+    // ------------------------------------------------ ciężkie
+    case 'nova':
+      g.add(bx(0.055, 0.08, 0.24, M.dark, 0, 0.02, 0.0));
+      g.add(cyl(0.018, 0.6, M.metal, 0, 0.05, -0.38));
+      g.add(cyl(0.016, 0.45, M.dark, 0, 0.01, -0.3));
+      g.add(bx(0.06, 0.06, 0.16, M.wood, 0, 0.01, -0.32));
+      g.add(bx(0.05, 0.09, 0.26, M.wood, 0, -0.02, 0.24));
+      g.add(rot(bx(0.04, 0.1, 0.04, M.dark, 0, -0.06, 0.06), 0.3));
+      muzzle = -0.68; break;
+    case 'xm1014':
+      g.add(bx(0.06, 0.09, 0.3, M.dark, 0, 0.02, -0.02));
+      g.add(cyl(0.018, 0.55, M.metal, 0, 0.05, -0.42));
+      g.add(cyl(0.016, 0.4, M.dark, 0, 0.01, -0.34));
+      g.add(bx(0.05, 0.08, 0.26, M.dark, 0, -0.01, 0.26));
+      g.add(rot(bx(0.04, 0.1, 0.04, M.dark, 0, -0.06, 0.06), 0.3));
+      muzzle = -0.7; break;
+    case 'negev':
+      g.add(bx(0.08, 0.11, 0.46, M.dark, 0, 0.02, -0.12));
+      g.add(cyl(0.02, 0.4, M.metal, 0, 0.03, -0.52));
+      g.add(bx(0.12, 0.13, 0.14, M.green, -0.04, -0.09, -0.12));
+      g.add(bx(0.05, 0.08, 0.26, M.dark, 0, -0.01, 0.24));
+      g.add(rot(bx(0.04, 0.1, 0.04, M.dark, 0, -0.06, 0.06), 0.3));
+      g.add(rot(bx(0.012, 0.15, 0.012, M.dark, 0.03, -0.08, -0.5), 0.4));
+      g.add(rot(bx(0.012, 0.15, 0.012, M.dark, -0.03, -0.08, -0.5), 0.4));
+      muzzle = -0.74; break;
+    // ------------------------------------------------ karabiny
+    case 'ak47': case 'galil':
       g.add(bx(0.06, 0.08, 0.42, M.metal, 0, 0.02, -0.12));
-      g.add(bx(0.055, 0.06, 0.2, M.wood, 0, 0.0, -0.33));
+      g.add(bx(0.055, 0.06, 0.2, key === 'galil' ? M.dark : M.wood, 0, 0.0, -0.33));
       g.add(cyl(0.013, 0.32, M.dark, 0, 0.035, -0.5));
-      g.add(bx(0.05, 0.08, 0.25, M.wood, 0, -0.02, 0.2));
-      g.add(rot(bx(0.04, 0.17, 0.06, M.metal, 0, -0.1, -0.12), -0.35));
-      g.add(rot(bx(0.04, 0.1, 0.04, M.wood, 0, -0.06, 0.03), 0.3));
+      g.add(bx(0.05, 0.08, 0.25, key === 'galil' ? M.dark : M.wood, 0, -0.02, 0.2));
+      g.add(rot(bx(0.04, 0.17, 0.06, M.metal, 0, -0.1, -0.12), key === 'galil' ? -0.2 : -0.35));
+      g.add(rot(bx(0.04, 0.1, 0.04, key === 'galil' ? M.dark : M.wood, 0, -0.06, 0.03), 0.3));
       muzzle = -0.66; break;
-    case 'm4a4':
+    case 'm4a4': case 'm4a1s':
       g.add(bx(0.06, 0.09, 0.42, M.metal, 0, 0.02, -0.1));
       g.add(bx(0.06, 0.07, 0.24, M.dark, 0, 0.01, -0.4));
       g.add(cyl(0.013, 0.3, M.dark, 0, 0.03, -0.62));
       g.add(bx(0.05, 0.08, 0.24, M.dark, 0, -0.01, 0.22));
       g.add(bx(0.02, 0.04, 0.16, M.dark, 0, 0.09, -0.1));
-      g.add(bx(0.04, 0.15, 0.06, M.metal, 0, -0.1, -0.1));
+      g.add(bx(0.04, key === 'm4a1s' ? 0.12 : 0.15, 0.06, M.metal, 0, -0.1, -0.1));
       g.add(rot(bx(0.04, 0.1, 0.04, M.dark, 0, -0.06, 0.04), 0.3));
-      muzzle = -0.78; break;
+      muzzle = -0.78;
+      if (key === 'm4a1s') { g.add(cyl(0.024, 0.24, M.black, 0, 0.03, -0.86)); muzzle = -0.98; }
+      break;
+    case 'famas':
+      g.add(bx(0.06, 0.1, 0.5, M.dark, 0, 0.0, 0.0));
+      g.add(bx(0.025, 0.06, 0.36, M.dark, 0, 0.09, -0.02));
+      g.add(cyl(0.013, 0.2, M.metal, 0, 0.02, -0.34));
+      g.add(rot(bx(0.035, 0.14, 0.05, M.metal, 0, -0.1, 0.12), -0.15));
+      g.add(rot(bx(0.04, 0.1, 0.04, M.dark, 0, -0.07, -0.08), 0.3));
+      muzzle = -0.44; break;
+    case 'sg553': case 'aug': {
+      const aug = key === 'aug', body = aug ? M.green : M.dark;
+      g.add(bx(0.065, 0.1, aug ? 0.46 : 0.44, body, 0, 0.0, aug ? 0.0 : -0.08));
+      g.add(cyl(0.013, 0.3, M.dark, 0, 0.02, aug ? -0.38 : -0.44));
+      g.add(cyl(0.028, 0.2, M.black, 0, 0.1, -0.06));
+      g.add(bx(0.02, 0.04, 0.08, M.black, 0, 0.065, -0.06));
+      g.add(rot(bx(0.04, 0.15, 0.055, M.metal, 0, -0.1, aug ? 0.1 : -0.1), -0.15));
+      g.add(rot(bx(0.04, 0.1, 0.04, M.dark, 0, -0.06, aug ? -0.1 : 0.04), 0.3));
+      if (!aug) g.add(bx(0.05, 0.08, 0.24, M.dark, 0, -0.01, 0.22));
+      muzzle = aug ? -0.53 : -0.6; break;
+    }
+    case 'ssg08':
+      g.add(bx(0.055, 0.08, 0.5, M.grey, 0, 0.01, -0.02));
+      g.add(cyl(0.012, 0.5, M.dark, 0, 0.03, -0.5));
+      g.add(cyl(0.03, 0.28, M.black, 0, 0.1, -0.08));
+      g.add(bx(0.05, 0.1, 0.18, M.grey, 0, -0.03, 0.3));
+      g.add(bx(0.035, 0.07, 0.06, M.dark, 0, -0.07, -0.06));
+      muzzle = -0.76; break;
     case 'awp':
       g.add(bx(0.07, 0.1, 0.6, M.olive, 0, 0.01, -0.05));
       g.add(cyl(0.016, 0.5, M.dark, 0, 0.03, -0.6));
@@ -262,6 +373,28 @@ function gunModel(key, hands, team) {
       g.add(bx(0.06, 0.12, 0.22, M.olive, 0, -0.03, 0.33));
       g.add(bx(0.04, 0.08, 0.08, M.dark, 0, -0.08, -0.08));
       muzzle = -0.86; break;
+    // ------------------------------------------------ granaty
+    case 'he':
+      g.add(vcyl(0.035, 0.08, M2.heBody, 0, 0.0, 0));
+      g.add(vcyl(0.018, 0.03, M.metal, 0, 0.055, 0));
+      g.add(bx(0.012, 0.07, 0.015, M.metal, 0.03, 0.02, 0));
+      muzzle = 0; break;
+    case 'flash':
+      g.add(vcyl(0.026, 0.11, M2.flashBody, 0, 0.0, 0));
+      g.add(vcyl(0.018, 0.03, M.metal, 0, 0.07, 0));
+      g.add(bx(0.012, 0.09, 0.015, M.metal, 0.024, 0.02, 0));
+      muzzle = 0; break;
+    case 'smoke': case 'incgren':
+      g.add(vcyl(0.03, 0.12, key === 'smoke' ? M2.smokeBody : M2.incBody, 0, 0.0, 0));
+      g.add(vcyl(0.031, 0.02, key === 'smoke' ? M2.grey : M2.red, 0, 0.02, 0));
+      g.add(vcyl(0.018, 0.03, M.metal, 0, 0.075, 0));
+      g.add(bx(0.012, 0.1, 0.015, M.metal, 0.028, 0.02, 0));
+      muzzle = 0; break;
+    case 'molotov':
+      g.add(vcyl(0.035, 0.12, M2.bottle, 0, 0.0, 0));
+      g.add(vcyl(0.014, 0.07, M2.bottle, 0, 0.095, 0, 0.03));
+      g.add(rot(bx(0.03, 0.05, 0.02, M2.rag, 0, 0.14, 0), 0, 0, 0.3));
+      muzzle = 0; break;
   }
   if (hands) {
     const glove = team === 'CT' ? M.gloveCT : M.gloveT;
@@ -270,6 +403,10 @@ function gunModel(key, hands, team) {
     if (WEAPONS[key].slot === 1) {
       g.add(bx(0.07, 0.06, 0.09, glove, -0.02, -0.04, -0.3));
       g.add(rot(bx(0.08, 0.08, 0.4, glove, -0.12, -0.12, -0.08), 0, -0.6));
+    }
+    if (key === 'dualies') {
+      g.add(bx(0.07, 0.07, 0.1, glove, -0.155, -0.06, 0.06));
+      g.add(bx(0.08, 0.08, 0.35, glove, -0.18, -0.09, 0.28));
     }
   }
   g.userData.muzzle = muzzle;
@@ -373,15 +510,178 @@ function updateFx(dt) {
   if (lightTimer > 0) { lightTimer -= dt; if (lightTimer <= 0) flashLight.intensity = 0; }
 }
 
+// ---------------------------------------------------------------- granaty: lot, dym, ogień
+const projectiles = new Map();   // `${by}:${cid}` -> {mesh, s, g, acc}
+function spawnProjectile(by, cid, g, o, v) {
+  const key = `${by}:${cid}`;
+  if (projectiles.has(key)) return;
+  const mesh = gunModel(g, false);
+  mesh.traverse(m => { if (m.isMesh) m.castShadow = true; });
+  mesh.position.set(...o); scene.add(mesh);
+  projectiles.set(key, { mesh, s: nadeState(o, v), g, acc: 0 });
+}
+function removeProjectile(by, cid) {
+  const key = `${by}:${cid}`, pr = projectiles.get(key);
+  if (pr) { scene.remove(pr.mesh); projectiles.delete(key); }
+}
+function updateProjectiles(dt) {
+  for (const pr of projectiles.values()) {
+    pr.acc += dt;
+    while (pr.acc >= NADE.step && !nadeDone(pr.s, pr.g)) {
+      pr.acc -= NADE.step;
+      const hit = nadeStep(pr.s);
+      if (hit > 3) SND.bounce(new THREE.Vector3(pr.s.x, pr.s.y, pr.s.z), hit);
+    }
+    pr.mesh.position.set(pr.s.x, pr.s.y, pr.s.z);
+    const sp = Math.hypot(pr.s.vx, pr.s.vz);
+    pr.mesh.rotation.x -= sp * dt * 2; pr.mesh.rotation.z += sp * dt * 0.7;
+  }
+}
+
+const smokeTex = canvasTex(64, (g, s) => {
+  const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.55, 'rgba(255,255,255,.85)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, s, s);
+}, false);
+const smokes = [];   // {group, puffs, t0, until, c}
+function addSmoke(x, y, z) {
+  const group = new THREE.Group(), puffs = [];
+  for (let i = 0; i < 70; i++) {
+    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * NADE.smokeRadius * 0.85;
+    const h = Math.random() * 3.1;
+    const shade = 0.72 + Math.random() * 0.18;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, color: new THREE.Color(shade, shade, shade * 0.97), transparent: true, depthWrite: false, opacity: 0 }));
+    sp.position.set(Math.cos(a) * r * (1 - h / 6), h + 0.3, Math.sin(a) * r * (1 - h / 6));
+    sp.material.rotation = Math.random() * 6;
+    const size = 2.2 + Math.random() * 1.6;
+    puffs.push({ sp, size, spin: (Math.random() - 0.5) * 0.3 });
+    group.add(sp);
+  }
+  group.position.set(x, y, z); scene.add(group);
+  smokes.push({ group, puffs, t0: performance.now() / 1000, until: performance.now() / 1000 + NADE.smokeTime, c: new THREE.Vector3(x, y + 1.5, z) });
+}
+function updateSmokes(t, dt) {
+  for (let i = smokes.length - 1; i >= 0; i--) {
+    const sm = smokes[i], age = t - sm.t0, left = sm.until - t;
+    const grow = Math.min(1, age / 1.2), alpha = Math.min(1, age / 0.6) * Math.min(1, left / 2.5);
+    for (const p of sm.puffs) {
+      p.sp.scale.setScalar(p.size * (0.3 + 0.7 * grow));
+      p.sp.material.opacity = 0.92 * alpha;
+      p.sp.material.rotation += p.spin * dt;
+    }
+    if (left <= 0) { scene.remove(sm.group); smokes.splice(i, 1); }
+  }
+}
+// czy odcinek a-b przechodzi przez gęsty dym
+function smokeBlocks(a, b) {
+  const t = performance.now() / 1000, ab = b.clone().sub(a), len2 = ab.lengthSq();
+  for (const sm of smokes) {
+    if (t - sm.t0 < 0.8 || sm.until - t < 1.5) continue;
+    const k = clamp(sm.c.clone().sub(a).dot(ab) / len2, 0, 1);
+    if (a.clone().addScaledVector(ab, k).distanceTo(sm.c) < NADE.smokeRadius * 0.9) return true;
+  }
+  return false;
+}
+
+const fires = new Map();   // id -> {group, flames, light, until, pos, snd}
+function addFire(id, x, y, z, dur) {
+  const group = new THREE.Group(), flames = [];
+  for (let i = 0; i < 40; i++) {
+    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * NADE.fireRadius;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashTex, color: new THREE.Color(1, 0.55 + Math.random() * 0.25, 0.2), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
+    sp.position.set(Math.cos(a) * r, 0.3, Math.sin(a) * r);
+    flames.push({ sp, base: 0.6 + Math.random() * 0.7, ph: Math.random() * 10 });
+    group.add(sp);
+  }
+  const light = new THREE.PointLight(0xff7a20, 8, 12, 2); light.position.y = 1; group.add(light);
+  group.position.set(x, y, z); scene.add(group);
+  fires.set(id, { group, flames, light, until: performance.now() / 1000 + dur / 1000, pos: new THREE.Vector3(x, y + 0.5, z), snd: 0 });
+}
+function removeFire(id) { const f = fires.get(id); if (f) { scene.remove(f.group); fires.delete(id); } }
+function updateFires(t, dt) {
+  for (const [id, f] of fires) {
+    const left = f.until - t;
+    if (left <= 0) { removeFire(id); continue; }
+    const fade = Math.min(1, left / 1.5);
+    for (const fl of f.flames) {
+      const k = 0.75 + 0.35 * Math.sin(t * 13 + fl.ph) + 0.15 * Math.sin(t * 31 + fl.ph * 2);
+      fl.sp.scale.set(fl.base * k * fade, fl.base * 1.7 * k * fade, 1);
+      fl.sp.position.y = 0.3 + 0.35 * fl.base * k;
+    }
+    f.light.intensity = (6 + Math.sin(t * 20) * 2) * fade;
+    f.snd -= dt;
+    if (f.snd <= 0) { f.snd = 0.22; if (camera.position.distanceTo(f.pos) < 45) SND.fire(f.pos); }
+  }
+}
+function clearNadeFx() {
+  for (const pr of projectiles.values()) scene.remove(pr.mesh);
+  projectiles.clear();
+  for (const sm of smokes) scene.remove(sm.group);
+  smokes.length = 0;
+  for (const id of [...fires.keys()]) removeFire(id);
+}
+
+function whiteout(peak, hold, fadeSecs) {
+  const w = $('flashwhite');
+  w.style.transition = 'none'; w.style.opacity = peak;
+  clearTimeout(w._t);
+  w._t = setTimeout(() => { w.style.transition = `opacity ${fadeSecs}s ease-in`; w.style.opacity = 0; }, hold * 1000);
+}
+function flashMe(pos) {
+  if (!me.alive) return;
+  const eye = eyePos(), d = pos.clone().sub(eye), dist = d.length();
+  if (dist > 45) return;
+  d.normalize();
+  if (traceMap(eye.toArray(), d.toArray(), dist).t < dist - 0.2) return;
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const dot = fwd.dot(d);
+  const ang = dot > 0.6 ? 1 : dot > 0.2 ? 0.75 : dot > -0.3 ? 0.35 : 0.12;
+  const dur = 5 * ang * clamp(1.25 - dist / 28, 0.15, 1);
+  if (dur < 0.25) return;
+  whiteout(1, dur * 0.45, dur * 0.55 + 0.4);
+  SND.ring(dur);
+}
+
+function onDetonate(m) {
+  removeProjectile(m.by, m.cid);
+  const p = new THREE.Vector3(m.x, m.y, m.z);
+  const kind = WEAPONS[m.g].nade;
+  const dist = camera.position.distanceTo(p);
+  if (kind === 'he') {
+    SND.he(p);
+    addFlashSprite(scene, p.clone().setY(p.y + 0.4), 2.5, 0.35);
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashTex, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
+    s.position.copy(p).setY(p.y + 0.5); s.scale.setScalar(1.5); scene.add(s);
+    fx.push({ obj: s, life: 0.45, max: 0.45, grow: 14 });
+    for (let i = 0; i < 14; i++) addImpact(p.clone().setY(p.y + 0.2), -1, new THREE.Vector3(Math.random() - 0.5, -1, Math.random() - 0.5), false);
+    flashLight.position.copy(p).setY(p.y + 1); flashLight.intensity = 120; flashLight.distance = 25; lightTimer = 0.15;
+    setTimeout(() => { flashLight.distance = 9; }, 200);
+    shake = Math.max(shake, clamp(1 - dist / 25, 0, 1));
+  } else if (kind === 'flash') {
+    SND.flashPop(p);
+    addFlashSprite(scene, p, 3, 0.12);
+    flashLight.position.copy(p); flashLight.intensity = 200; flashLight.distance = 30; lightTimer = 0.1;
+    setTimeout(() => { flashLight.distance = 9; }, 150);
+    flashMe(p);
+  } else if (kind === 'smoke') {
+    SND.smokePop(p);
+    addSmoke(m.x, m.y, m.z);
+  } else if (kind === 'fire') {
+    SND.glass(p);
+    if (m.fizz) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, transparent: true, depthWrite: false, opacity: 0.7 })); s.position.copy(p).setY(p.y + 0.5); scene.add(s); fx.push({ obj: s, life: 1, max: 1, grow: 3 }); }
+    else addFire(m.fid, m.x, m.y, m.z, m.dur);
+  }
+}
+
 // ================================================================ stan
 const me = {
   id: 0, team: null, joined: false, alive: false,
   pos: new THREE.Vector3(0, 0, 40), vel: new THREE.Vector3(), yaw: 0, pitch: 0,
   onGround: true, crouch: false, crouchAmt: 0,
-  weapon: 'knife', lastWeapon: 'knife', inv: { 1: null, 2: null, 3: 'knife' },
+  weapon: 'knife', lastWeapon: 'knife', inv: { 1: null, 2: null, 3: 'knife' },   // granaty w me.nades
   ammo: {}, nextShot: 0, reloadEnd: 0, recoil: 0, recoilYaw: 0, shotsFired: 0, lastShotT: 0,
   scope: 0, stepAcc: 0, money: 0, hp: 100, armor: 0, kit: false,
-  specId: 0, punch: 0,
+  specId: 0, punch: 0, nades: {}, nadeCock: null, cid: 0,
 };
 const remotes = new Map();   // id -> {data, model, ...}
 let game = { ph: 'warmup', tl: -1, sc: { T: 0, CT: 0 }, rn: 0, b: null, bt: 0, p: [] };
@@ -398,7 +698,7 @@ function playerData(id) { return game.p.find(q => q.i === id); }
 // ================================================================ viewmodel
 let vm = null, vmKey = null;
 const vmRoot = new THREE.Group(); vmScene.add(vmRoot);
-const vmState = { kick: 0, drawT: 0, bobT: 0, swing: 0 };
+const vmState = { kick: 0, drawT: 0, bobT: 0, swing: 0, throwT: 0 };
 function setViewModel(key) {
   if (vmKey === key && vm) return;
   if (vm) vmRoot.remove(vm);
@@ -408,16 +708,28 @@ function setViewModel(key) {
   vmState.drawT = 1;
 }
 
+const ownedNades = () => NADES.filter(k => me.nades[k] > 0);
+function has(w) {
+  if (!w) return false;
+  if (w === 'knife') return true;
+  return WEAPONS[w].nade ? me.nades[w] > 0 : me.inv[WEAPONS[w].slot] === w;
+}
 function switchWeapon(w) {
-  if (!w || w === me.weapon || !me.inv[WEAPONS[w].slot] || me.inv[WEAPONS[w].slot] !== w) return;
+  if (!w || w === me.weapon || !has(w)) return;
   me.lastWeapon = me.weapon;
   me.weapon = w;
-  me.reloadEnd = 0; me.scope = 0;
+  me.reloadEnd = 0; me.scope = 0; me.nadeCock = null;
   me.nextShot = Math.max(me.nextShot, performance.now() / 1000 + (w === 'knife' ? 0.25 : 0.5));
   setViewModel(w);
   SND.draw();
 }
 function bestWeapon() { return me.inv[1] || me.inv[2] || 'knife'; }
+function cycleNade() {
+  const list = ownedNades();
+  if (!list.length) return;
+  const i = list.indexOf(me.weapon);
+  switchWeapon(list[(i + 1) % list.length]);
+}
 
 // ================================================================ sieć
 let ws = null;
@@ -463,12 +775,18 @@ function handle(m) {
       break;
     }
     case 'give':
+      if (m.nade) { me.nades[m.w] = (me.nades[m.w] || 0) + 1; SND.buy(); break; }
       me.ammo[m.w] = fullAmmo(m.w);
       me.inv[WEAPONS[m.w].slot] = m.w;
       switchWeapon(m.w);
       SND.buy();
       break;
     case 'shot': onRemoteShot(m); break;
+    case 'nade':
+      if (m.by !== me.id) spawnProjectile(m.by, m.cid, m.g, m.o, m.v);
+      break;
+    case 'det': onDetonate(m); break;
+    case 'fireOut': removeFire(m.id); break;
     case 'rtc': if (me.joined) voice.signal(m.from, m.data); break;
     case 'talk': voice.setTalking(m.id, m.on); updateVoiceHud(); break;
     case 'hitmark': {
@@ -487,6 +805,7 @@ function handle(m) {
     }
     case 'kill': onKill(m); break;
     case 'roundStart':
+      clearNadeFx();
       showCenter(`Runda ${m.round}`, 'Czas na zakupy – B', 2.5);
       break;
     case 'go':
@@ -536,10 +855,10 @@ function handle(m) {
 
 function syncInventory(mine, force) {
   const prevPrim = me.inv[1], prevSec = me.inv[2];
-  me.inv[1] = mine.pr; me.inv[2] = mine.se;
+  me.inv[1] = mine.pr; me.inv[2] = mine.se; me.nades = { ...(mine.gr || {}) };
   if (mine.pr && mine.pr !== prevPrim && !me.ammo[mine.pr]) me.ammo[mine.pr] = fullAmmo(mine.pr);
   if (mine.se && mine.se !== prevSec && !me.ammo[mine.se]) me.ammo[mine.se] = fullAmmo(mine.se);
-  if (force || (me.weapon !== 'knife' && me.inv[WEAPONS[me.weapon].slot] !== me.weapon)) {
+  if (force || !has(me.weapon)) {
     me.weapon = bestWeapon(); me.scope = 0;
     setViewModel(me.weapon);
   }
@@ -618,12 +937,17 @@ function onRemoteShot(m) {
   const start = r ? remoteMuzzle(r) : new THREE.Vector3(...m.o);
   SND.shot(m.w, start);
   if (m.w === 'knife') return;
-  addFlashSprite(scene, start, 0.6);
+  addFlashSprite(scene, start, WEAPONS[m.w].silenced ? 0.25 : 0.6);
   worldFlash(start);
   addTracer(start, end);
   const dir = end.clone().sub(new THREE.Vector3(...m.o)).normalize();
   if (m.h) addImpact(end, -1, dir, true);
   else addImpact(end, m.ax, dir, false);
+  for (const e of (m.es || []).slice(1)) {
+    const pe = new THREE.Vector3(...e);
+    addTracer(start, pe);
+    addImpact(pe, -1, pe.clone().sub(new THREE.Vector3(...m.o)).normalize(), false);
+  }
 }
 
 function onKill(m) {
@@ -672,7 +996,9 @@ function buildBuyMenu() {
       const def = WEAPONS[key] || ITEMS[key];
       const b = document.createElement('button');
       b.innerHTML = `${def.name}<small>$${def.price}</small>`;
-      const bad = (def.team && def.team !== me.team) || me.money < def.price || !game.bt || !me.alive;
+      const total = Object.values(me.nades).reduce((a, b) => a + b, 0);
+      const full = def.nade && ((me.nades[key] || 0) >= def.max || total >= NADE.total);
+      const bad = (def.team && def.team !== me.team) || me.money < def.price || !game.bt || !me.alive || full;
       b.disabled = bad;
       if (def.team && def.team !== me.team) b.classList.add('hidden');
       b.onclick = () => { net({ t: 'buy', item: key }); setTimeout(buildBuyMenu, 150); };
@@ -712,6 +1038,8 @@ function drawRadar() {
     g.fillStyle = b.type === 'crate' ? 'rgba(160,110,60,.9)' : 'rgba(30,30,30,.85)';
     g.fillRect(rx(b.min[0]), rz(b.min[2]), (b.max[0] - b.min[0]) * RS, (b.max[2] - b.min[2]) * RS);
   }
+  for (const sm of smokes) { g.fillStyle = 'rgba(220,220,220,.55)'; g.beginPath(); g.arc(rx(sm.c.x), rz(sm.c.z), NADE.smokeRadius * RS, 0, 7); g.fill(); }
+  for (const f of fires.values()) { g.fillStyle = 'rgba(255,120,30,.55)'; g.beginPath(); g.arc(rx(f.pos.x), rz(f.pos.z), NADE.fireRadius * RS, 0, 7); g.fill(); }
   const b = game.b;
   if (b && (b.s === 'planted' || ((b.s === 'dropped') && me.team === 'T'))) {
     g.fillStyle = (b.s === 'planted' && Math.floor(performance.now() / 300) % 2) ? '#f22' : '#f88';
@@ -779,22 +1107,30 @@ document.addEventListener('mousemove', e => {
 });
 document.addEventListener('mousedown', e => {
   if (!locked()) return;
+  const w = WEAPONS[me.weapon];
   if (e.button === 0) {
     mouseDown = true;
-    if (!me.alive) cycleSpec(); else tryShoot(false);
+    if (!me.alive) cycleSpec();
+    else if (w.nade) cockNade('far');
+    else tryShoot(false);
   }
   if (e.button === 2) {
     rightDown = true;
     if (!me.alive) cycleSpec(-1);
-    else if (WEAPONS[me.weapon].scope && performance.now() / 1000 >= me.reloadEnd) { me.scope = (me.scope + 1) % 3; SND.click(); }
+    else if (w.nade) cockNade('near');
+    else if (w.scope && performance.now() / 1000 >= me.reloadEnd) { me.scope = (me.scope + 1) % (w.zoom.length + 1); SND.click(); }
     else if (me.weapon === 'knife') tryShoot(true);
   }
 });
-document.addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; if (e.button === 2) rightDown = false; });
+document.addEventListener('mouseup', e => {
+  if (e.button === 0) mouseDown = false;
+  if (e.button === 2) rightDown = false;
+  if (me.nadeCock && (e.button === 0 || e.button === 2)) throwNade();
+});
 document.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('wheel', e => {
   if (!locked() || !me.alive) return;
-  const order = [me.inv[1], me.inv[2], 'knife'].filter(Boolean);
+  const order = [me.inv[1], me.inv[2], 'knife', ...ownedNades()].filter(Boolean);
   const i = order.indexOf(me.weapon);
   switchWeapon(order[(i + (e.deltaY > 0 ? 1 : -1) + order.length) % order.length]);
 });
@@ -819,7 +1155,8 @@ addEventListener('keydown', e => {
     case 'Digit1': switchWeapon(me.inv[1]); break;
     case 'Digit2': switchWeapon(me.inv[2]); break;
     case 'Digit3': switchWeapon('knife'); break;
-    case 'KeyQ': switchWeapon(me.inv[WEAPONS[me.lastWeapon].slot] === me.lastWeapon ? me.lastWeapon : bestWeapon()); break;
+    case 'Digit4': cycleNade(); break;
+    case 'KeyQ': switchWeapon(has(me.lastWeapon) ? me.lastWeapon : bestWeapon()); break;
     case 'KeyR': startReload(); break;
     case 'KeyB': toggleBuy(); break;
     case 'KeyY': case 'Enter': if (!ui.buy) { e.preventDefault(); openChat(); } break;
@@ -940,7 +1277,7 @@ function updateMovement(dt) {
 const tmpV = new THREE.Vector3();
 function currentSpread(speed) {
   const w = WEAPONS[me.weapon];
-  if (w.knife) return 0;
+  if (w.knife || w.nade) return 0;
   let s = w.scope && !me.scope ? w.unscoped : w.spread;
   s += w.moveSpread * clamp((speed - 1.5) / 4, 0, 1);
   if (!me.onGround) s += 0.12;
@@ -955,6 +1292,7 @@ function tryShoot(alt) {
   if (!me.alive || game.ph === 'freeze' || ui.buy || ui.chat) return;
   if (t < me.nextShot || (me.reloadEnd && t < me.reloadEnd)) return;
   const w = WEAPONS[me.weapon];
+  if (w.nade) return;
   const ammo = me.ammo[me.weapon];
   if (!w.knife) {
     if (!ammo || ammo.mag <= 0) { SND.click(); me.nextShot = t + 0.25; if (ammo && ammo.res > 0) startReload(); return; }
@@ -967,14 +1305,21 @@ function tryShoot(alt) {
   const o = eyePos();
   const spread = currentSpread(curSpeed);
   const pitch = me.pitch + me.recoil, yaw = me.yaw + me.recoilYaw;
-  const dir = new THREE.Vector3(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
-  if (spread > 0) {
-    const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-    const up = new THREE.Vector3().crossVectors(right, dir).normalize();
-    const a = Math.random() * Math.PI * 2, r = spread * Math.sqrt(Math.random());
-    dir.addScaledVector(right, Math.cos(a) * r).addScaledVector(up, Math.sin(a) * r).normalize();
+  const aim = new THREE.Vector3(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  const up = new THREE.Vector3().crossVectors(right, aim).normalize();
+  const dirs = [];
+  for (let i = 0; i < (w.pellets || 1); i++) {
+    const dir = aim.clone();
+    if (spread > 0) {
+      const a = Math.random() * Math.PI * 2, r = spread * Math.sqrt(Math.random());
+      dir.addScaledVector(right, Math.cos(a) * r).addScaledVector(up, Math.sin(a) * r).normalize();
+    }
+    dirs.push(dir);
   }
-  net({ t: 'shoot', o: o.toArray().map(v => +v.toFixed(3)), d: dir.toArray().map(v => +v.toFixed(4)), w: me.weapon, alt: alt || undefined });
+  const dir = dirs[0];
+  const pack = v => v.toArray().map(x => +x.toFixed(4));
+  net({ t: 'shoot', o: o.toArray().map(v => +v.toFixed(3)), d: pack(dir), ds: w.pellets ? dirs.map(pack) : undefined, w: me.weapon, alt: alt || undefined });
 
   // odrzut
   if (!w.knife) {
@@ -989,14 +1334,16 @@ function tryShoot(alt) {
   if (w.knife) return;
   // lokalny efekt trafienia
   const others = [...remotes.entries()].map(([id, r]) => ({ id, alive: r.alive, x: r.pos.x, y: r.pos.y, z: r.pos.z, crouch: r.data?.c }));
-  const res = traceShot(o.toArray(), dir.toArray(), 300, others, me.id);
-  const end = o.clone().addScaledVector(dir, res.t);
   const muzzleW = camera.localToWorld(tmpV.set(0.14, -0.13, -0.6).clone());
-  addTracer(muzzleW, end);
-  addImpact(end, res.axis, dir, !!res.hit);
-  if (vm) addFlashSprite(vmRoot, new THREE.Vector3(0, 0.03, vm.userData.muzzle).applyMatrix4(vm.matrix), 0.16 + (me.weapon === 'awp' ? 0.1 : 0), 0.04);
-  worldFlash(muzzleW);
-  if (w.scope) me.scope = 0;
+  for (const d of dirs) {
+    const res = traceShot(o.toArray(), d.toArray(), 300, others, me.id);
+    const end = o.clone().addScaledVector(d, res.t);
+    addTracer(muzzleW, end);
+    addImpact(end, res.axis, d, !!res.hit);
+  }
+  if (vm) addFlashSprite(vmRoot, new THREE.Vector3(0, 0.03, vm.userData.muzzle).applyMatrix4(vm.matrix), w.silenced ? 0.07 : 0.16 + (w.cls === 'sniper' || w.pellets ? 0.1 : 0), 0.04);
+  if (!w.silenced) worldFlash(muzzleW);
+  if (w.bolt) me.scope = 0;
   if (ammo.mag === 0 && ammo.res > 0) setTimeout(startReload, 250);
 }
 
@@ -1008,6 +1355,39 @@ function startReload() {
   me.reloadWeapon = me.weapon;
   SND.reload();
 }
+// granaty: wciśnięcie przycisku odbezpiecza, puszczenie rzuca (LPM – daleko, PPM – lekko)
+function cockNade(kind) {
+  const t = performance.now() / 1000;
+  if (!me.alive || game.ph === 'freeze' || ui.buy || ui.chat || t < me.nextShot || me.nadeCock) return;
+  me.nadeCock = kind;
+  SND.pin();
+}
+function throwNade() {
+  const kind = me.nadeCock; me.nadeCock = null;
+  const g = me.weapon, w = WEAPONS[g];
+  const t = performance.now() / 1000;
+  if (!kind || !w.nade || !me.alive || game.ph === 'freeze' || !(me.nades[g] > 0)) return;
+  const pitch = Math.min(1.5, me.pitch + 0.08), yaw = me.yaw;
+  const dir = new THREE.Vector3(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+  const far = kind === 'far';
+  const v = dir.multiplyScalar(far ? 20 : 9);
+  v.x += me.vel.x * 0.6; v.z += me.vel.z * 0.6; v.y += (far ? 1.5 : 1) + Math.max(0, me.vel.y) * 0.5;
+  const o = eyePos().toArray().map(x => +x.toFixed(3)), va = v.toArray().map(x => +x.toFixed(3));
+  const cid = ++me.cid;
+  net({ t: 'throw', g, o, v: va, cid });
+  spawnProjectile(me.id, cid, g, o, va);
+  SND.throwNade();
+  me.nades[g]--;
+  vmState.throwT = 1;
+  me.nextShot = t + 0.6;
+  setTimeout(() => {
+    if (me.weapon !== g) return;
+    if (me.nades[g] > 0) { vmKey = null; setViewModel(g); return; }
+    const next = ownedNades()[0];
+    switchWeapon(next || (has(me.lastWeapon) && me.lastWeapon !== g ? me.lastWeapon : bestWeapon()));
+  }, 350);
+}
+
 function updateReload(t) {
   if (me.reloadEnd && t >= me.reloadEnd) {
     me.reloadEnd = 0;
@@ -1076,7 +1456,8 @@ function update(dt) {
         losRay.set(r.pos.x - eye.x, r.pos.y + 1.4 - eye.y, r.pos.z - eye.z);
         const dist = losRay.length(); losRay.normalize();
         const fwd = new THREE.Vector3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
-        r.spotted = traceMap(eye.toArray(), losRay.toArray(), dist).t >= dist - 0.01 && fwd.dot(losRay) > 0.3;
+        r.spotted = traceMap(eye.toArray(), losRay.toArray(), dist).t >= dist - 0.01 && fwd.dot(losRay) > 0.3
+          && !smokeBlocks(eye, r.pos.clone().setY(r.pos.y + 1.4));
       } else r.spotted = r.team !== me.team && r.spotted;
     }
   }
@@ -1091,6 +1472,9 @@ function update(dt) {
   } else bombLed.visible = !!(b && b.s === 'dropped');
 
   updateFx(dt);
+  updateProjectiles(dt);
+  updateSmokes(t, dt);
+  updateFires(t, dt);
   updateCamera(dt);
   updateViewModel(dt, t);
 
@@ -1125,7 +1509,8 @@ function updateCamera(dt) {
     camera.position.x += (Math.random() - 0.5) * shake * 0.3;
     camera.position.y += (Math.random() - 0.5) * shake * 0.3;
   }
-  const targetFov = me.alive && me.scope ? (me.scope === 1 ? 40 : 15) : BASE_FOV;
+  const zoom = WEAPONS[me.weapon].zoom;
+  const targetFov = me.alive && me.scope && zoom ? zoom[me.scope - 1] : BASE_FOV;
   if (camera.fov !== targetFov) { camera.fov = targetFov; camera.updateProjectionMatrix(); }
   camera.updateMatrixWorld();
   if (actx) {
@@ -1145,6 +1530,7 @@ function updateViewModel(dt, t) {
   vmState.kick *= Math.exp(-dt * 18);
   vmState.drawT = Math.max(0, vmState.drawT - dt * 3);
   vmState.swing = Math.max(0, vmState.swing - dt * 3.5);
+  vmState.throwT = Math.max(0, vmState.throwT - dt * 3);
   const sp = me.onGround ? curSpeed : 0;
   vmState.bobT += dt * sp * 1.7;
   const bob = Math.min(1, sp / 5);
@@ -1160,6 +1546,8 @@ function updateViewModel(dt, t) {
     -0.36 + vmState.kick * 0.05,
   );
   vm.rotation.set(vmState.kick * 0.12 + rl * 0.6 - vmState.drawT * 0.6, 0.04, rl * 0.4);
+  if (me.nadeCock) { vm.position.y += 0.03; vm.position.z += 0.06; vm.rotation.x -= 0.4; }
+  if (vmState.throwT > 0) { const s = Math.sin(vmState.throwT * Math.PI); vm.position.z -= s * 0.25; vm.position.y += s * 0.08 - (1 - vmState.throwT) * 0.3; vm.rotation.x += s * 0.8; }
   if (vmState.swing > 0) { const s = Math.sin(vmState.swing * Math.PI); vm.rotation.y = 0.04 + s * 0.9; vm.position.x -= s * 0.12; vm.position.z -= s * 0.12; }
 }
 
@@ -1190,10 +1578,12 @@ function updateHud() {
   $('armor').textContent = me.armor;
   $('money').textContent = `$${me.money}`;
   const w = WEAPONS[me.weapon], a = me.ammo[me.weapon];
-  $('ammobox').style.visibility = me.alive && !w.knife ? 'visible' : 'hidden';
-  if (a && !w.knife) { $('mag').textContent = a.mag; $('res').textContent = a.res; $('mag').style.color = a.mag <= w.mag * 0.2 ? '#f44' : ''; }
+  $('ammobox').style.visibility = me.alive && !w.knife && !w.nade ? 'visible' : 'hidden';
+  if (a && !w.knife && !w.nade) { $('mag').textContent = a.mag; $('res').textContent = a.res; $('mag').style.color = a.mag <= w.mag * 0.2 ? '#f44' : ''; }
   $('wepname').textContent = me.alive ? w.name + (me.reloadEnd ? ' – przeładowanie…' : '') : '';
-  $('weplist').innerHTML = me.alive ? [me.inv[1], me.inv[2], 'knife'].map((k, i) => k ? `<div class="${k === me.weapon ? 'cur' : ''}">${i + 1}. ${WEAPONS[k].name}</div>` : '').join('') + (me.kit ? '<div>🔧 Zestaw</div>' : '') : '';
+  const nadeList = ownedNades().map(k => `<span class="${k === me.weapon ? 'cur' : ''}">${WEAPONS[k].name}${me.nades[k] > 1 ? ' ×' + me.nades[k] : ''}</span>`).join(', ');
+  $('weplist').innerHTML = me.alive ? [me.inv[1], me.inv[2], 'knife'].map((k, i) => k ? `<div class="${k === me.weapon ? 'cur' : ''}">${i + 1}. ${WEAPONS[k].name}</div>` : '').join('')
+    + (nadeList ? `<div>4. ${nadeList}</div>` : '') + (me.kit ? '<div>🔧 Zestaw</div>' : '') : '';
   const carrying = b && b.s === 'carried' && b.c === me.id;
   $('bombicon').textContent = carrying ? '💣 Masz bombę – podłóż na A lub B (E)' : '';
 
@@ -1222,6 +1612,7 @@ function updateHud() {
   ch.querySelector('.l').style.left = (-gap - 8) + 'px';
   ch.querySelector('.r').style.left = gap + 'px';
   $('scope').classList.toggle('hidden', !(me.alive && me.scope));
+  $('scope').classList.toggle('rifle', w.cls === 'rifle');
   if (ui.buy) { if (!game.bt || !me.alive) toggleBuy(false); else $('buymoney').textContent = `$${me.money}`; }
   if (ui.tab) renderScoreboard();
 }

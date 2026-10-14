@@ -9,18 +9,49 @@ export const ROUND = {
   killMoney: 300, plantMoney: 300,
 };
 
-// slot: 1 = główna, 2 = pistolet, 3 = nóż
+// slot: 1 = główna, 2 = pistolet, 3 = nóż, 4 = granaty
+// cls: klasa broni (dźwięk, nagroda za fraga), kill: nagroda za fraga (domyślnie ROUND.killMoney)
+// scope: luneta, zoom: FOV kolejnych przybliżeń, bolt: luneta zdejmowana po strzale
+// pellets: śrut (liczba pocisków na strzał), silenced: tłumik, tone: barwa wystrzału (Hz)
 export const WEAPONS = {
-  knife:  { name: 'Nóż',      slot: 3, dmg: 55,  rate: 0.45, range: 2.2, speed: 6.6, knife: true },
-  glock:  { name: 'Glock-18', slot: 2, dmg: 28,  rate: 0.15, mag: 20, res: 120, reload: 2.2, spread: 0.010, moveSpread: 0.035, recoil: 0.010, price: 200,  team: 'T',  speed: 6.3 },
-  usp:    { name: 'USP-S',    slot: 2, dmg: 35,  rate: 0.17, mag: 12, res: 24,  reload: 2.2, spread: 0.007, moveSpread: 0.035, recoil: 0.014, price: 200,  team: 'CT', speed: 6.3 },
-  deagle: { name: 'Desert Eagle', slot: 2, dmg: 63, rate: 0.45, mag: 7, res: 35, reload: 2.2, spread: 0.006, moveSpread: 0.08, recoil: 0.05, price: 700, speed: 6.1 },
-  mac10:  { name: 'MAC-10',   slot: 1, dmg: 29,  rate: 0.075, mag: 30, res: 100, reload: 2.6, spread: 0.016, moveSpread: 0.025, recoil: 0.008, price: 1050, team: 'T',  speed: 6.3, auto: true },
-  mp9:    { name: 'MP9',      slot: 1, dmg: 26,  rate: 0.07, mag: 30, res: 120, reload: 2.1, spread: 0.014, moveSpread: 0.022, recoil: 0.007, price: 1250, team: 'CT', speed: 6.3, auto: true },
-  ak47:   { name: 'AK-47',    slot: 1, dmg: 36,  rate: 0.1,  mag: 30, res: 90,  reload: 2.5, spread: 0.004, moveSpread: 0.07, recoil: 0.016, price: 2700, team: 'T',  speed: 5.9, auto: true },
-  m4a4:   { name: 'M4A4',     slot: 1, dmg: 33,  rate: 0.09, mag: 30, res: 90,  reload: 3.1, spread: 0.003, moveSpread: 0.06, recoil: 0.013, price: 3100, team: 'CT', speed: 6.0, auto: true },
-  awp:    { name: 'AWP',      slot: 1, dmg: 115, rate: 1.45, mag: 5,  res: 30,  reload: 3.6, spread: 0.0004, unscoped: 0.09, moveSpread: 0.15, recoil: 0.06, price: 4750, speed: 5.2, scope: true },
+  knife:  { name: 'Nóż',      slot: 3, dmg: 55,  rate: 0.45, range: 2.2, speed: 6.6, knife: true, kill: 1500 },
+  // pistolety
+  glock:  { name: 'Glock-18', slot: 2, cls: 'pistol', dmg: 28, rate: 0.15, mag: 20, res: 120, reload: 2.2, spread: 0.010, moveSpread: 0.035, recoil: 0.010, price: 200, team: 'T',  speed: 6.3 },
+  usp:    { name: 'USP-S',    slot: 2, cls: 'pistol', dmg: 35, rate: 0.17, mag: 12, res: 24,  reload: 2.2, spread: 0.007, moveSpread: 0.035, recoil: 0.014, price: 200, team: 'CT', speed: 6.3, silenced: true },
+  p250:   { name: 'P250',     slot: 2, cls: 'pistol', dmg: 38, rate: 0.15, mag: 13, res: 26,  reload: 2.2, spread: 0.009, moveSpread: 0.04,  recoil: 0.018, price: 300, speed: 6.3 },
+  dualies:{ name: 'Dual Berettas', slot: 2, cls: 'pistol', dmg: 38, rate: 0.12, mag: 30, res: 120, reload: 3.8, spread: 0.012, moveSpread: 0.04, recoil: 0.012, price: 300, speed: 6.3 },
+  tec9:   { name: 'Tec-9',    slot: 2, cls: 'pistol', dmg: 33, rate: 0.12, mag: 18, res: 90,  reload: 2.5, spread: 0.011, moveSpread: 0.03,  recoil: 0.014, price: 500, team: 'T',  speed: 6.3 },
+  fiveseven: { name: 'Five-SeveN', slot: 2, cls: 'pistol', dmg: 32, rate: 0.15, mag: 20, res: 100, reload: 2.2, spread: 0.008, moveSpread: 0.03, recoil: 0.014, price: 500, team: 'CT', speed: 6.3 },
+  deagle: { name: 'Desert Eagle', slot: 2, cls: 'pistol', dmg: 63, rate: 0.45, mag: 7, res: 35, reload: 2.2, spread: 0.006, moveSpread: 0.08, recoil: 0.05, price: 700, speed: 6.1, tone: 2000 },
+  // SMG
+  mac10:  { name: 'MAC-10',   slot: 1, cls: 'smg', dmg: 29, rate: 0.075, mag: 30, res: 100, reload: 2.6, spread: 0.016, moveSpread: 0.025, recoil: 0.008, price: 1050, team: 'T',  speed: 6.3, auto: true, kill: 600 },
+  mp9:    { name: 'MP9',      slot: 1, cls: 'smg', dmg: 26, rate: 0.07,  mag: 30, res: 120, reload: 2.1, spread: 0.014, moveSpread: 0.022, recoil: 0.007, price: 1250, team: 'CT', speed: 6.3, auto: true, kill: 600 },
+  ump45:  { name: 'UMP-45',   slot: 1, cls: 'smg', dmg: 35, rate: 0.09,  mag: 25, res: 100, reload: 3.5, spread: 0.012, moveSpread: 0.03,  recoil: 0.010, price: 1200, speed: 6.1, auto: true, kill: 600, tone: 2400 },
+  mp7:    { name: 'MP7',      slot: 1, cls: 'smg', dmg: 29, rate: 0.08,  mag: 30, res: 120, reload: 3.1, spread: 0.010, moveSpread: 0.025, recoil: 0.008, price: 1500, speed: 5.8, auto: true, kill: 600 },
+  p90:    { name: 'P90',      slot: 1, cls: 'smg', dmg: 26, rate: 0.07,  mag: 50, res: 100, reload: 3.3, spread: 0.013, moveSpread: 0.025, recoil: 0.006, price: 2350, speed: 6.1, auto: true, tone: 3200 },
+  // ciężkie
+  nova:   { name: 'Nova',     slot: 1, cls: 'heavy', dmg: 26, pellets: 9, rate: 0.88, mag: 8, res: 32, reload: 4.0, spread: 0.05,  moveSpread: 0.02, recoil: 0.06,  price: 1050, speed: 5.8, kill: 900 },
+  xm1014: { name: 'XM1014',   slot: 1, cls: 'heavy', dmg: 20, pellets: 6, rate: 0.35, mag: 7, res: 32, reload: 3.5, spread: 0.045, moveSpread: 0.02, recoil: 0.035, price: 2000, speed: 5.7, auto: true, kill: 600 },
+  negev:  { name: 'Negev',    slot: 1, cls: 'heavy', dmg: 35, rate: 0.075, mag: 150, res: 200, reload: 5.7, spread: 0.012, moveSpread: 0.06, recoil: 0.009, price: 1700, speed: 4.0, auto: true, tone: 2200 },
+  // karabiny
+  galil:  { name: 'Galil AR', slot: 1, cls: 'rifle', dmg: 30, rate: 0.09, mag: 35, res: 90, reload: 3.0, spread: 0.005,  moveSpread: 0.07, recoil: 0.014, price: 1800, team: 'T',  speed: 5.7, auto: true, tone: 2500 },
+  famas:  { name: 'FAMAS',    slot: 1, cls: 'rifle', dmg: 30, rate: 0.09, mag: 25, res: 90, reload: 3.3, spread: 0.005,  moveSpread: 0.07, recoil: 0.012, price: 2050, team: 'CT', speed: 5.8, auto: true },
+  ak47:   { name: 'AK-47',    slot: 1, cls: 'rifle', dmg: 36, rate: 0.1,  mag: 30, res: 90, reload: 2.5, spread: 0.004,  moveSpread: 0.07, recoil: 0.016, price: 2700, team: 'T',  speed: 5.9, auto: true, tone: 2300 },
+  m4a4:   { name: 'M4A4',     slot: 1, cls: 'rifle', dmg: 33, rate: 0.09, mag: 30, res: 90, reload: 3.1, spread: 0.003,  moveSpread: 0.06, recoil: 0.013, price: 3100, team: 'CT', speed: 6.0, auto: true },
+  m4a1s:  { name: 'M4A1-S',   slot: 1, cls: 'rifle', dmg: 38, rate: 0.1,  mag: 20, res: 80, reload: 3.1, spread: 0.0025, moveSpread: 0.06, recoil: 0.011, price: 2900, team: 'CT', speed: 5.9, auto: true, silenced: true },
+  sg553:  { name: 'SG 553',   slot: 1, cls: 'rifle', dmg: 30, rate: 0.09, mag: 30, res: 90, reload: 2.8, spread: 0.0015, unscoped: 0.005, moveSpread: 0.07, recoil: 0.013, price: 3000, team: 'T',  speed: 5.5, auto: true, scope: true, zoom: [52], tone: 2600 },
+  aug:    { name: 'AUG',      slot: 1, cls: 'rifle', dmg: 28, rate: 0.09, mag: 30, res: 90, reload: 3.8, spread: 0.0015, unscoped: 0.005, moveSpread: 0.07, recoil: 0.012, price: 3300, team: 'CT', speed: 5.8, auto: true, scope: true, zoom: [52] },
+  ssg08:  { name: 'SSG 08',   slot: 1, cls: 'sniper', dmg: 88, rate: 1.25, mag: 10, res: 90, reload: 3.7, spread: 0.0006, unscoped: 0.05, moveSpread: 0.06, recoil: 0.04, price: 1700, speed: 6.1, scope: true, zoom: [40, 15], bolt: true },
+  awp:    { name: 'AWP',      slot: 1, cls: 'sniper', dmg: 115, rate: 1.45, mag: 5, res: 30, reload: 3.6, spread: 0.0004, unscoped: 0.09, moveSpread: 0.15, recoil: 0.06, price: 4750, speed: 5.2, scope: true, zoom: [40, 15], bolt: true, kill: 100 },
+  // granaty (nade: rodzaj działania, max: limit sztuk)
+  he:      { name: 'Granat HE',    slot: 4, nade: 'he',    price: 300, max: 1, speed: 6.3 },
+  flash:   { name: 'Flashbang',    slot: 4, nade: 'flash', price: 200, max: 2, speed: 6.3 },
+  smoke:   { name: 'Granat dymny', slot: 4, nade: 'smoke', price: 300, max: 1, speed: 6.3 },
+  molotov: { name: 'Mołotow',      slot: 4, nade: 'fire',  price: 400, max: 1, speed: 6.3, team: 'T' },
+  incgren: { name: 'Granat zapalający', slot: 4, nade: 'fire', price: 600, max: 1, speed: 6.3, team: 'CT' },
 };
+
+export const NADES = Object.keys(WEAPONS).filter(k => WEAPONS[k].nade);
 
 export const ITEMS = {
   vest:   { name: 'Kamizelka', price: 650 },
@@ -29,9 +60,11 @@ export const ITEMS = {
 };
 
 export const BUY = [
-  { cat: 'Pistolety', items: ['glock', 'usp', 'deagle'] },
-  { cat: 'SMG', items: ['mac10', 'mp9'] },
-  { cat: 'Karabiny', items: ['ak47', 'm4a4', 'awp'] },
+  { cat: 'Pistolety', items: ['glock', 'usp', 'p250', 'dualies', 'tec9', 'fiveseven', 'deagle'] },
+  { cat: 'SMG', items: ['mac10', 'mp9', 'ump45', 'mp7', 'p90'] },
+  { cat: 'Ciężkie', items: ['nova', 'xm1014', 'negev'] },
+  { cat: 'Karabiny', items: ['galil', 'famas', 'ak47', 'm4a4', 'm4a1s', 'sg553', 'aug', 'ssg08', 'awp'] },
+  { cat: 'Granaty', items: ['he', 'flash', 'smoke', 'molotov', 'incgren'] },
   { cat: 'Wyposażenie', items: ['vest', 'vesthelm', 'kit'] },
 ];
 
@@ -158,3 +191,65 @@ export function traceShot(o, d, range, players, ignoreId) {
   }
   return { t: best, hit, head, axis: hit ? -1 : wall.axis };
 }
+
+// ---------------------------------------------------------------- granaty
+// Fizyka lotu jest deterministyczna i wspólna: serwer liczy z niej miejsce wybuchu,
+// klient – animację lotu (ten sam krok czasowy daje ten sam tor).
+export const NADE = {
+  grav: 20, step: 1 / 64, r: 0.07, fuse: 1.6, maxSpeed: 26, total: 4,
+  heDmg: 100, heRadius: 9,
+  smokeTime: 18, smokeRadius: 3.2,
+  fireTime: 7, fireRadius: 3.2, fireDps: 32,
+};
+
+function nadeHit(x, y, z) {
+  const r = NADE.r;
+  if (y < r) return true;
+  for (const b of MAP.boxes) {
+    if (x > b.min[0] - r && x < b.max[0] + r && y > b.min[1] - r && y < b.max[1] + r && z > b.min[2] - r && z < b.max[2] + r) return true;
+  }
+  return false;
+}
+
+export function nadeState(o, v) {
+  return { x: o[0], y: o[1], z: o[2], vx: v[0], vy: v[1], vz: v[2], t: 0, ground: false };
+}
+
+// Jeden krok symulacji; zwraca prędkość uderzenia (0 = bez kolizji).
+export function nadeStep(s) {
+  const dt = NADE.step;
+  s.t += dt; s.vy -= NADE.grav * dt; s.ground = false;
+  let impact = 0;
+  for (const k of ['x', 'y', 'z']) {
+    const vk = 'v' + k, prev = s[k];
+    s[k] += s[vk] * dt;
+    if (!nadeHit(s.x, s.y, s.z)) continue;
+    s[k] = prev;
+    const sp = Math.abs(s[vk]);
+    if (k === 'y' && s[vk] < 0) {
+      s.ground = true;
+      const f = sp > 2 ? 0.7 : Math.max(0, 1 - 5 * dt);
+      s.vx *= f; s.vz *= f;
+      s.vy = sp > 2 ? sp * 0.4 : 0;
+      if (sp > 2) impact = Math.max(impact, sp);
+    } else {
+      s[vk] = -s[vk] * 0.45;
+      impact = Math.max(impact, sp);
+    }
+  }
+  return impact;
+}
+
+export function nadeDone(s, g) {
+  const kind = WEAPONS[g].nade;
+  if (kind === 'smoke') return (s.t > 0.6 && Math.hypot(s.vx, s.vy, s.vz) < 0.2) || s.t > 6;
+  if (kind === 'fire') return (s.ground && s.t > 0.05) || s.t > 2.2;
+  return s.t >= NADE.fuse;
+}
+
+export function simNade(o, v, g) {
+  const s = nadeState(o, v);
+  while (!nadeDone(s, g)) nadeStep(s);
+  return s;
+}
+

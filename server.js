@@ -5,7 +5,7 @@ import os from 'os';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import {
-  MAP, WEAPONS, ITEMS, PLAYER, ROUND, DEFAULT_PISTOL, traceShot, siteAt,
+  MAP, WEAPONS, ITEMS, PLAYER, ROUND, DEFAULT_PISTOL, NADE, traceShot, traceMap, siteAt, simNade,
 } from './public/shared.js';
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -49,6 +49,9 @@ const game = {
   startAt: 0,        // odliczanie do startu meczu z rozgrzewki
 };
 
+// granaty w locie, aktywne dymy i pożary
+let pendingNades = [], smokes = [], fires = [], nextFire = 1;
+
 const now = () => Date.now();
 const r2 = v => Math.round(v * 100) / 100;
 
@@ -62,7 +65,8 @@ const alivePlayers = team => teamPlayers(team).filter(p => p.alive);
 
 function sanitize(s, n) { return String(s || '').replace(/[<>&"']/g, '').trim().slice(0, n); }
 
-function owns(p, w) { return w === 'knife' || p.prim === w || p.sec === w; }
+function owns(p, w) { return w === 'knife' || p.prim === w || p.sec === w || p.nades[w] > 0; }
+const nadeCount = p => Object.values(p.nades).reduce((a, b) => a + b, 0);
 
 function spawnPlayer(p, idx) {
   const list = MAP.spawns[p.team];
@@ -75,7 +79,7 @@ function spawnPlayer(p, idx) {
   send(p.ws, { t: 'spawn', x: p.x, y: p.y, z: p.z, yaw: p.yaw });
 }
 
-function stripPlayer(p) { p.prim = null; p.sec = null; p.armor = 0; p.helmet = false; p.kit = false; }
+function stripPlayer(p) { p.prim = null; p.sec = null; p.armor = 0; p.helmet = false; p.kit = false; p.nades = {}; }
 
 function warmupSpawn(p) {
   p.money = ROUND.maxMoney;
@@ -104,6 +108,7 @@ function startRound() {
   game.phase = 'freeze';
   game.phaseEnd = now() + ROUND.freeze * 1000;
   game.liveStart = game.phaseEnd;
+  pendingNades = []; smokes = []; fires = [];
   for (const team of ['T', 'CT']) {
     teamPlayers(team).forEach((p, i) => {
       if (!p.alive) stripPlayer(p);
@@ -153,7 +158,7 @@ function kill(victim, attacker, wep, hs) {
   if (attacker && attacker !== victim) {
     if (attacker.team !== victim.team) {
       attacker.kills++;
-      const reward = wep === 'knife' ? 1500 : wep === 'awp' ? 100 : ROUND.killMoney;
+      const reward = WEAPONS[wep]?.kill ?? ROUND.killMoney;
       if (game.phase !== 'warmup') attacker.money = Math.min(ROUND.maxMoney, attacker.money + reward);
     } else attacker.kills--;
   }
@@ -162,16 +167,17 @@ function kill(victim, attacker, wep, hs) {
   checkElimination();
 }
 
-function damage(victim, attacker, dmg, wep, hs) {
+function damage(victim, attacker, dmg, wep, hs, from) {
   if (!victim.alive) return;
   let hpDmg = dmg;
   const armored = victim.armor > 0 && (!hs || victim.helmet);
-  if (armored && wep !== 'bomb') {
+  if (armored && wep !== 'bomb' && WEAPONS[wep]?.nade !== 'fire') {
     hpDmg = Math.round(dmg * 0.55);
     victim.armor = Math.max(0, victim.armor - Math.round(dmg * 0.3));
   }
   victim.hp -= hpDmg;
-  send(victim.ws, { t: 'dmg', hp: Math.max(0, victim.hp), fx: attacker ? attacker.x : null, fz: attacker ? attacker.z : null });
+  const src = from || attacker;
+  send(victim.ws, { t: 'dmg', hp: Math.max(0, victim.hp), fx: src ? src.x : null, fz: src ? src.z : null });
   if (victim.hp <= 0) kill(victim, attacker, wep, hs);
 }
 
@@ -192,7 +198,7 @@ function onMessage(ws, msg) {
         id: nextId++, ws, name: sanitize(msg.name, 16) || `Gracz${nextId}`, team,
         alive: false, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: false, wep: 'knife',
         hp: 0, armor: 0, helmet: false, kit: false, money: ROUND.startMoney,
-        prim: null, sec: null, kills: 0, deaths: 0, lastShot: 0, use: null, respawnAt: 0,
+        prim: null, sec: null, nades: {}, kills: 0, deaths: 0, lastShot: 0, use: null, respawnAt: 0,
       };
       ws.player = np;
       players.set(np.id, np);
@@ -226,33 +232,62 @@ function onMessage(ws, msg) {
     case 'shoot': {
       if (!p || !p.alive || game.phase === 'freeze') return;
       const w = WEAPONS[msg.w];
-      if (!w || !owns(p, msg.w)) return;
+      if (!w || w.nade || !owns(p, msg.w)) return;
       const t = now();
       if (t - p.lastShot < w.rate * 1000 * 0.75) return;
       p.lastShot = t;
-      const o = msg.o, d = msg.d;
-      if (!Array.isArray(o) || !Array.isArray(d) || o.length !== 3 || d.length !== 3) return;
-      if (![...o, ...d].every(v => typeof v === 'number' && isFinite(v))) return;
+      const o = msg.o, dirs = w.pellets ? msg.ds : [msg.d];
+      if (!Array.isArray(o) || o.length !== 3 || !Array.isArray(dirs) || !dirs.length || dirs.length > (w.pellets || 1)) return;
+      if (!dirs.every(d => Array.isArray(d) && d.length === 3)) return;
+      if (![...o, ...dirs.flat()].every(v => typeof v === 'number' && isFinite(v))) return;
       const eye = p.y + (p.crouch ? PLAYER.ceye : PLAYER.eye);
       if (Math.hypot(o[0] - p.x, o[1] - eye, o[2] - p.z) > 2.5) return;
-      const len = Math.hypot(d[0], d[1], d[2]) || 1;
-      const dir = [d[0] / len, d[1] / len, d[2] / len];
       const range = w.knife ? w.range + 0.4 : 300;
       const others = [...players.values()].filter(q => q.alive && q.id !== p.id);
-      const res = traceShot(o, dir, range, others, p.id);
-      const end = [o[0] + dir[0] * res.t, o[1] + dir[1] * res.t, o[2] + dir[2] * res.t];
-      broadcast({ t: 'shot', id: p.id, w: msg.w, o, e: end.map(r2), h: res.hit ? res.hit.id : 0, ax: res.axis }, ws);
-      if (res.hit) {
-        const friendly = res.hit.team === p.team;
-        if (!friendly) {
-          let dmg = w.dmg;
-          if (res.head) dmg *= w.knife ? 1.5 : 4;
-          if (w.knife && msg.alt) dmg = 65;
-          dmg = Math.round(dmg);
-          send(ws, { t: 'hitmark', hs: res.head, kill: res.hit.hp - dmg <= 0 });
-          damage(res.hit, p, dmg, msg.w, res.head);
-        }
+      const ends = [], hits = new Map();   // ofiara -> {dmg, head}
+      let firstHit = 0, firstAxis = -1;
+      for (const d of dirs) {
+        const len = Math.hypot(d[0], d[1], d[2]) || 1;
+        const dir = [d[0] / len, d[1] / len, d[2] / len];
+        const res = traceShot(o, dir, range, others, p.id);
+        ends.push([o[0] + dir[0] * res.t, o[1] + dir[1] * res.t, o[2] + dir[2] * res.t].map(r2));
+        if (ends.length === 1) { firstHit = res.hit ? res.hit.id : 0; firstAxis = res.axis; }
+        if (!res.hit || res.hit.team === p.team) continue;
+        let dmg = w.dmg;
+        if (res.head) dmg *= w.knife ? 1.5 : 4;
+        if (w.knife && msg.alt) dmg = 65;
+        if (w.pellets) dmg *= Math.max(0.2, Math.min(1, 1 - (res.t - 4) / 18));
+        const h = hits.get(res.hit) || { dmg: 0, head: false };
+        h.dmg += dmg; h.head ||= res.head;
+        hits.set(res.hit, h);
       }
+      broadcast({ t: 'shot', id: p.id, w: msg.w, o, e: ends[0], es: w.pellets ? ends : undefined, h: firstHit, ax: firstAxis }, ws);
+      for (const [victim, h] of hits) {
+        const dmg = Math.round(h.dmg);
+        send(ws, { t: 'hitmark', hs: h.head, kill: victim.hp - dmg <= 0 });
+        damage(victim, p, dmg, msg.w, h.head);
+      }
+      break;
+    }
+    case 'throw': {
+      if (!p || !p.alive || game.phase === 'freeze') return;
+      const w = WEAPONS[msg.g];
+      if (!w || !w.nade || !(p.nades[msg.g] > 0)) return;
+      const o = msg.o, v = msg.v;
+      if (!Array.isArray(o) || !Array.isArray(v) || o.length !== 3 || v.length !== 3) return;
+      if (![...o, ...v].every(x => typeof x === 'number' && isFinite(x))) return;
+      const eye = p.y + (p.crouch ? PLAYER.ceye : PLAYER.eye);
+      if (Math.hypot(o[0] - p.x, o[1] - eye, o[2] - p.z) > 2.5) return;
+      const t = now();
+      if (t - p.lastShot < 500) return;
+      p.lastShot = t;
+      const sp = Math.hypot(v[0], v[1], v[2]);
+      if (sp > NADE.maxSpeed) for (let i = 0; i < 3; i++) v[i] *= NADE.maxSpeed / sp;
+      if (--p.nades[msg.g] <= 0) delete p.nades[msg.g];
+      const cid = Number(msg.cid) | 0;
+      const end = simNade(o, v, msg.g);
+      pendingNades.push({ g: msg.g, by: p.id, cid, at: t + end.t * 1000, x: end.x, y: end.y, z: end.z, ground: end.ground });
+      broadcast({ t: 'nade', g: msg.g, by: p.id, cid, o, v });
       break;
     }
     case 'buy': {
@@ -262,7 +297,12 @@ function onMessage(ws, msg) {
       if (!def || def.price == null) return;
       if (def.team && def.team !== p.team) return;
       if (p.money < def.price) return send(ws, { t: 'msg', text: 'Za mało kasy!' });
-      if (w) {
+      if (w && w.nade) {
+        if ((p.nades[msg.item] || 0) >= w.max) return send(ws, { t: 'msg', text: `Limit: ${w.name} ×${w.max}` });
+        if (nadeCount(p) >= NADE.total) return send(ws, { t: 'msg', text: `Maksymalnie ${NADE.total} granaty` });
+        p.nades[msg.item] = (p.nades[msg.item] || 0) + 1;
+        send(ws, { t: 'give', w: msg.item, nade: true });
+      } else if (w) {
         if (w.slot === 1) { if (p.prim === msg.item) return; p.prim = msg.item; }
         else { if (p.sec === msg.item) return; p.sec = msg.item; }
         p.wep = msg.item;
@@ -297,6 +337,66 @@ function onMessage(ws, msg) {
       break;
     }
   }
+}
+
+// ---------------------------------------------------------------- granaty
+function sees(o, q, h) {
+  const d = [q.x - o[0], q.y + h - o[1], q.z - o[2]];
+  const dist = Math.hypot(...d);
+  return traceMap(o, d.map(v => v / dist), dist).t >= dist - 0.05;
+}
+const inSmoke = (x, y, z) => smokes.some(s => Math.hypot(x - s.x, y - s.y, z - s.z) < NADE.smokeRadius + 0.5);
+
+function detonate(n) {
+  const kind = WEAPONS[n.g].nade, by = players.get(n.by) || null;
+  const msg = { t: 'det', g: n.g, by: n.by, cid: n.cid, x: r2(n.x), y: r2(n.y), z: r2(n.z) };
+  // granaty ranią wrogów i rzucającego (bez ognia przyjacielskiego, jak przy broni palnej)
+  const target = q => q.alive && (!by || q === by || q.team !== by.team);
+  if (kind === 'he') {
+    const o = [n.x, n.y + 0.15, n.z];
+    for (const q of players.values()) {
+      if (!target(q)) continue;
+      const d = Math.hypot(q.x - n.x, q.y + 0.9 - n.y, q.z - n.z);
+      if (d > NADE.heRadius || !(sees(o, q, 1.0) || sees(o, q, 1.6) || sees(o, q, 0.2))) continue;
+      const dmg = Math.round(NADE.heDmg * Math.pow(1 - d / NADE.heRadius, 1.3));
+      if (dmg > 0) damage(q, by, dmg, n.g, false, n);
+    }
+  } else if (kind === 'smoke') {
+    smokes.push({ x: n.x, y: n.y, z: n.z, until: now() + NADE.smokeTime * 1000 });
+    for (const f of fires) {
+      if (Math.hypot(f.x - n.x, f.z - n.z) < NADE.smokeRadius + NADE.fireRadius && Math.abs(f.y - n.y) < 3) f.until = 0;
+    }
+  } else if (kind === 'fire') {
+    let y = n.y;
+    if (!n.ground) y = n.y - traceMap([n.x, n.y, n.z], [0, -1, 0], 50).t;
+    msg.y = r2(y);
+    if (inSmoke(n.x, y, n.z)) msg.fizz = true;
+    else {
+      const f = { id: nextFire++, x: n.x, y, z: n.z, until: now() + NADE.fireTime * 1000, by: n.by, g: n.g, next: 0 };
+      fires.push(f);
+      msg.fid = f.id; msg.dur = NADE.fireTime * 1000;
+    }
+  }
+  broadcast(msg);
+}
+
+function updateNades(t) {
+  const due = pendingNades.filter(n => t >= n.at);
+  if (due.length) { pendingNades = pendingNades.filter(n => t < n.at); due.forEach(detonate); }
+  smokes = smokes.filter(s => t < s.until);
+  for (const f of fires) {
+    if (t >= f.until) { broadcast({ t: 'fireOut', id: f.id }); continue; }
+    if (t < f.next) continue;
+    f.next = t + 250;
+    const by = players.get(f.by) || null;
+    for (const q of players.values()) {
+      if (!q.alive || (by && q !== by && q.team === by.team)) continue;
+      if (Math.hypot(q.x - f.x, q.z - f.z) < NADE.fireRadius && q.y - f.y > -0.5 && q.y - f.y < 1.5) {
+        damage(q, by, Math.round(NADE.fireDps / 4), f.g, false, f);
+      }
+    }
+  }
+  fires = fires.filter(f => t < f.until);
 }
 
 // ---------------------------------------------------------------- pętla
@@ -367,6 +467,8 @@ function tick() {
     }
   }
 
+  updateNades(t);
+
   // snapshot
   const b = game.bomb;
   const snap = {
@@ -381,7 +483,7 @@ function tick() {
       return {
         i: p.id, n: p.name, t: p.team, a: p.alive, x: r2(p.x), y: r2(p.y), z: r2(p.z),
         yw: r2(p.yaw), pt: r2(p.pitch), c: p.crouch, w: p.wep, hp: Math.max(0, p.hp), ar: p.armor, hm: p.helmet,
-        m: p.money, k: p.kills, d: p.deaths, pr: p.prim, se: p.sec, kit: p.kit,
+        m: p.money, k: p.kills, d: p.deaths, pr: p.prim, se: p.sec, kit: p.kit, gr: p.nades,
         u: p.use ? Math.min(1, (t - p.use.t0) / 1000 / need) : 0, ut: p.use ? p.use.type : null,
       };
     }),

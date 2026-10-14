@@ -58,6 +58,9 @@
   #scope { position: absolute; inset: 0; background: radial-gradient(circle at center, transparent 0, transparent 37vh, #000 37.3vh); }
   #scope::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #000; }
   #scope::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: #000; }
+  #scope.rifle { background: radial-gradient(circle at center, transparent 0, transparent 30vh, rgba(0,0,0,.92) 30.4vh); }
+  #scope.rifle::before { left: calc(50% - 18px); right: calc(50% - 18px); background: #f33; }
+  #scope.rifle::after { top: calc(50% - 18px); bottom: calc(50% - 18px); background: #f33; }
   #dmgflash { position: absolute; inset: 0; box-shadow: inset 0 0 160px 40px rgba(220,0,0,.8); opacity: 0; transition: opacity .35s; }
   #flashwhite { position: absolute; inset: 0; background: #fff; opacity: 0; transition: opacity 1.4s; }
   #spec { position: absolute; bottom: 120px; width: 100%; text-align: center; font-size: 18px; }
@@ -80,10 +83,10 @@
   kbd { background: #333; border: 1px solid #555; border-radius: 3px; padding: 0 5px; font-size: 12px; }
   #urls { margin-top: 10px; font-size: 13px; color: #9f9; }
 
-  #buymenu .box { min-width: 640px; }
-  .buycats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 12px; }
+  #buymenu .box { width: 1080px; }
+  .buycats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
   .buycats h3 { margin: 0 0 8px; font-size: 14px; opacity: .7; text-transform: uppercase; }
-  .buycats button { display: block; width: 100%; text-align: left; margin: 0 0 6px; background: #2c3038; color: #fff; font-weight: 600; font-size: 14px; }
+  .buycats button { display: block; width: 100%; text-align: left; margin: 0 0 6px; padding: 9px 12px; background: #2c3038; color: #fff; font-weight: 600; font-size: 13px; }
   .buycats button small { float: right; color: #8f8; }
 
   #scoreboard .box { min-width: 640px; }
@@ -141,7 +144,7 @@
     <div id="urls"></div>
     <div class="keys">
       <kbd>WASD</kbd> ruch<br><kbd>Spacja</kbd> skok<br><kbd>C</kbd> kucanie<br><kbd>Shift</kbd> cichy chód<br>
-      <kbd>LPM</kbd> strzał<br><kbd>PPM</kbd> celownik AWP / dźgnięcie<br><kbd>R</kbd> przeładuj<br><kbd>1 2 3</kbd> / <kbd>Q</kbd> / kółko – broń<br>
+      <kbd>LPM</kbd> strzał<br><kbd>PPM</kbd> luneta / dźgnięcie<br><kbd>R</kbd> przeładuj<br><kbd>1 2 3</kbd> / <kbd>Q</kbd> / kółko – broń<br><kbd>4</kbd> granaty (LPM rzut, PPM lekki rzut)<br>
       <kbd>B</kbd> sklep<br><kbd>E</kbd> podłóż / rozbrój bombę<br><kbd>Tab</kbd> tabela wyników<br><kbd>Y</kbd> czat<br><kbd>V</kbd> mów (do wszystkich)
     </div>
   </div>
